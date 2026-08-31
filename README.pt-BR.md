@@ -15,12 +15,12 @@ Sobe este serviço mais seu próprio Postgres (e RabbitMQ, já que ele publica `
 
 ## Rodar como parte do sistema
 
-Implantado pelo chart Helm `orchestration` junto com os outros quatro serviços de backend e o frontend — ver [`../orchestration/README.pt-BR.md`](../orchestration/README.pt-BR.md). Acessado pelo Ingress compartilhado em `/api/users/*`.
+Implantado pelo chart Helm [`orchestration`](https://github.com/tc2-fiap/orchestration) junto com os outros quatro serviços de backend e o frontend — ver [`../orchestration/README.pt-BR.md`](../orchestration/README.pt-BR.md). Acessado pelo Ingress compartilhado em `/api/users/*`.
 
 ## O que tem aqui
 
 - `Domain/User.cs` — `PasswordHash` é anulável (nulo para contas somente-Google); `GoogleSubjectId`; `Role`.
-- `Domain/UserEvent.cs` — um log de auditoria de todo o sistema com cada `UserCreatedEvent` publicado (payload bruto, não um resumo), espelhando o `OrderEvent` do orders-api (`../documentation/spec/notes.md` 43).
+- `Domain/UserEvent.cs` — um log de auditoria de todo o sistema com cada `UserCreatedEvent` publicado (payload bruto, não um resumo), espelhando o `OrderEvent` do [orders-api](https://github.com/tc2-fiap/orders-api) (`../documentation/spec/notes.md` 43).
 - Publica `UserCreatedEvent` no cadastro (e uma vez, de forma idempotente, para o admin semeado — ver `../documentation/spec/notes.md` 32).
 - `GET /api/users/config` — anônimo; informa ao frontend se o login com Google está configurado, para que ele nunca renderize um botão fadado a falhar.
 - `GET /api/users/admin/events` — somente admin, paginado, filtrável por `eventType`/`from`/`to`; a listagem de eventos de todo o sistema (não por pedido) por trás da página `/admin/events` do frontend (`../documentation/spec/notes.md` 43).
