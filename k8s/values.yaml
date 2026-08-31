@@ -1,0 +1,22 @@
+replicaCount: 1
+
+image:
+  repository: users-api
+  tag: latest
+  pullPolicy: IfNotPresent
+
+service:
+  port: 8080
+
+postgres:
+  host: postgres
+  port: "5432"
+  database: fiap_games
+  username: users_role
+  searchPath: users
+
+# Public OAuth client identifier — not a secret. Empty by default; Google
+# sign-in returns a clear "not configured" failure until a real value is
+# supplied.
+google:
+  clientId: ""

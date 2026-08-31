@@ -1,0 +1,38 @@
+**English** · [Português](README.pt-BR.md)
+
+# FIAP Games — Users API
+
+Registration, login, Google sign-in, JWT issuance, and role management (`Player`/`Admin`) — the only service any other service trusts to issue tokens. Owns the `users` Postgres schema.
+
+## Run standalone
+
+```bash
+cp .env.example .env
+docker compose up --build
+```
+
+Brings up this service plus its own Postgres (and RabbitMQ, since it publishes `UserCreatedEvent`). API on `localhost:8081`, Swagger at `/swagger`.
+
+## Run as part of the system
+
+Deployed by the `orchestration` Helm chart alongside the other four backend services and the frontend — see [`../orchestration/README.en-US.md`](../orchestration/README.en-US.md). Reached through the shared Ingress at `/api/users/*`.
+
+## What's here
+
+- `Domain/User.cs` — `PasswordHash` is nullable (null for Google-only accounts); `GoogleSubjectId`; `Role`.
+- `Domain/UserEvent.cs` — a system-wide audit log of every `UserCreatedEvent` published (raw payload, not a summary), mirroring orders-api's `OrderEvent` (`../documentation/spec/notes.md` 43).
+- Publishes `UserCreatedEvent` on registration (and once, idempotently, for the seeded admin — see `../documentation/spec/notes.md` 32).
+- `GET /api/users/config` — anonymous; tells the frontend whether Google sign-in is configured, so it never renders a button guaranteed to fail.
+- `GET /api/users/admin/events` — admin-only, paginated, filterable by `eventType`/`from`/`to`; the system-wide (not per-order) event listing behind the frontend's `/admin/events` page (`../documentation/spec/notes.md` 43).
+- `PUT /api/users/{id}/role` — admin-only; promotes another user (the first admin is seeded from config at startup, since promotion needs an existing admin).
+- One `Admin` account is seeded at startup from `Admin:Email`/`Admin:Password` config, idempotently.
+
+## Test
+
+```bash
+cd tests/FiapGames.Users.Tests && dotnet test
+```
+
+## Documentation
+
+Full architecture, event contracts, and the project-wide decision record live in [`../documentation/`](../documentation/) — see [`DOCUMENTATION.en-US.md`](../documentation/narrative/DOCUMENTATION.en-US.md) and [`instructions.md`](../documentation/spec/instructions.md) §4.1.

@@ -1,0 +1,147 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: users-api
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    app: users-api
+spec:
+  replicas: {{ .Values.replicaCount }}
+  selector:
+    matchLabels:
+      app: users-api
+  template:
+    metadata:
+      labels:
+        app: users-api
+    spec:
+      initContainers:
+        # On a genuinely cold cluster bring-up, this pod can start before
+        # Postgres accepts connections; EF Core's Database.Migrate() at
+        # startup throws on a failed connection and crashes the process
+        # (unlike MassTransit's RabbitMQ client, which retries internally).
+        # Kubernetes' restart policy recovers on its own, but this avoids
+        # the transient error state on a one-command bring-up entirely.
+        - name: wait-for-postgres
+          image: postgres:16-alpine
+          command:
+            - sh
+            - -c
+            - until pg_isready -h "$POSTGRES_HOST" -p "$POSTGRES_PORT"; do echo waiting for postgres; sleep 2; done
+          env:
+            - name: POSTGRES_HOST
+              valueFrom:
+                configMapKeyRef:
+                  name: users-api-config
+                  key: POSTGRES_HOST
+            - name: POSTGRES_PORT
+              valueFrom:
+                configMapKeyRef:
+                  name: users-api-config
+                  key: POSTGRES_PORT
+      containers:
+        - name: users-api
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          ports:
+            - containerPort: 8080
+          env:
+            - name: ASPNETCORE_ENVIRONMENT
+              value: "Production"
+            - name: Postgres__Host
+              valueFrom:
+                configMapKeyRef:
+                  name: users-api-config
+                  key: POSTGRES_HOST
+            - name: Postgres__Port
+              valueFrom:
+                configMapKeyRef:
+                  name: users-api-config
+                  key: POSTGRES_PORT
+            - name: Postgres__Database
+              valueFrom:
+                configMapKeyRef:
+                  name: users-api-config
+                  key: POSTGRES_DATABASE
+            - name: Postgres__Username
+              valueFrom:
+                configMapKeyRef:
+                  name: users-api-config
+                  key: POSTGRES_USERNAME
+            - name: Postgres__SearchPath
+              valueFrom:
+                configMapKeyRef:
+                  name: users-api-config
+                  key: POSTGRES_SEARCHPATH
+            - name: Postgres__Password
+              valueFrom:
+                secretKeyRef:
+                  name: postgres-credentials
+                  key: USERS_DB_PASSWORD
+            - name: RabbitMq__Host
+              valueFrom:
+                configMapKeyRef:
+                  name: users-api-config
+                  key: RABBITMQ_HOST
+            - name: RabbitMq__VirtualHost
+              valueFrom:
+                configMapKeyRef:
+                  name: users-api-config
+                  key: RABBITMQ_VIRTUALHOST
+            - name: RabbitMq__Username
+              valueFrom:
+                secretKeyRef:
+                  name: rabbitmq-credentials
+                  key: RABBITMQ_DEFAULT_USER
+            - name: RabbitMq__Password
+              valueFrom:
+                secretKeyRef:
+                  name: rabbitmq-credentials
+                  key: RABBITMQ_DEFAULT_PASS
+            - name: Jwt__Secret
+              valueFrom:
+                secretKeyRef:
+                  name: jwt-credentials
+                  key: JWT_SECRET
+            - name: Jwt__Issuer
+              valueFrom:
+                configMapKeyRef:
+                  name: jwt-config
+                  key: JWT_ISSUER
+            - name: Jwt__Audience
+              valueFrom:
+                configMapKeyRef:
+                  name: jwt-config
+                  key: JWT_AUDIENCE
+            - name: Jwt__ExpiryMinutes
+              valueFrom:
+                configMapKeyRef:
+                  name: jwt-config
+                  key: JWT_EXPIRY_MINUTES
+            - name: Google__ClientId
+              valueFrom:
+                configMapKeyRef:
+                  name: users-api-config
+                  key: GOOGLE_CLIENT_ID
+            - name: Admin__Email
+              valueFrom:
+                secretKeyRef:
+                  name: admin-credentials
+                  key: ADMIN_EMAIL
+            - name: Admin__Password
+              valueFrom:
+                secretKeyRef:
+                  name: admin-credentials
+                  key: ADMIN_PASSWORD
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8080
+            initialDelaySeconds: 10
+            periodSeconds: 5
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8080
+            initialDelaySeconds: 20
+            periodSeconds: 10
