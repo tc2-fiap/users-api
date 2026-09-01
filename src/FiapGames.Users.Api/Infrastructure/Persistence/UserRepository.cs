@@ -55,6 +55,21 @@ public sealed class UserRepository : IUserRepository
         return new PagedResult<UserEvent>(items, totalCount, request.Page ?? 1, request.PageSize ?? 10);
     }
 
+    public async Task<PagedResult<User>> SearchAdminAsync(PagedRequest request, string? name, CancellationToken cancellationToken = default)
+    {
+        var query = _context.Users.AsQueryable();
+
+        if (!string.IsNullOrWhiteSpace(name))
+            query = query.Where(u => EF.Functions.ILike(u.Name, $"%{name}%"));
+
+        query = query.OrderBy(u => u.Name);
+
+        var totalCount = await query.LongCountAsync(cancellationToken);
+        var items = await query.Skip(request.Skip).Take(request.PageSize ?? 10).ToListAsync(cancellationToken);
+
+        return new PagedResult<User>(items, totalCount, request.Page ?? 1, request.PageSize ?? 10);
+    }
+
     public Task AddEventAsync(UserEvent userEvent, CancellationToken cancellationToken = default)
     {
         _context.UserEvents.Add(userEvent);

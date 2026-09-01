@@ -12,5 +12,7 @@ public interface IUserRepository : IRepository<User>
 
     Task<PagedResult<UserEvent>> GetAllEventsAdminAsync(PagedRequest request, string? eventType, DateTime? from, DateTime? to, CancellationToken cancellationToken = default);
 
+    Task<PagedResult<User>> SearchAdminAsync(PagedRequest request, string? name, CancellationToken cancellationToken = default);
+
     Task AddEventAsync(UserEvent userEvent, CancellationToken cancellationToken = default);
 }

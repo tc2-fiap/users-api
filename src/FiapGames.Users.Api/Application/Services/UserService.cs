@@ -165,6 +165,13 @@ public sealed class UserService : IUserService
         return new PagedResult<UserEventResponse>(items, paged.TotalCount, paged.Page, paged.PageSize);
     }
 
+    public async Task<PagedResult<UserResponse>> SearchUsersAdminAsync(PagedRequest request, string? name, CancellationToken cancellationToken = default)
+    {
+        var paged = await _repository.SearchAdminAsync(request, name, cancellationToken);
+        var items = paged.Items.Select(UserResponse.FromDomain).ToList();
+        return new PagedResult<UserResponse>(items, paged.TotalCount, paged.Page, paged.PageSize);
+    }
+
     public async Task<Result<UserResponse>> UpdateAsync(Guid id, UpdateUserRequest request, CancellationToken cancellationToken = default)
     {
         var user = await _repository.GetByIdAsync(id, cancellationToken);

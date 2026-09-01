@@ -95,6 +95,16 @@ public static class UserEndpoints
             return Results.Ok(result);
         }).RequireAuthorization(p => p.RequireRole(nameof(Domain.UserRole.Admin)));
 
+        group.MapGet("/admin/search", async (
+            [AsParameters] PagedRequest request,
+            string? name,
+            IUserService service,
+            CancellationToken cancellationToken) =>
+        {
+            var result = await service.SearchUsersAdminAsync(request, name, cancellationToken);
+            return Results.Ok(result);
+        }).RequireAuthorization(p => p.RequireRole(nameof(Domain.UserRole.Admin)));
+
         group.MapPut("/{id:guid}", async (
             Guid id,
             UpdateUserRequest request,

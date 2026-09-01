@@ -219,4 +219,18 @@ public class UserServiceTests
 
         Assert.Equal(2, result.Items.Count);
     }
+
+    [Fact]
+    public async Task SearchUsersAdminAsync_ForwardsNameFilterAndMapsResults()
+    {
+        var user = new User("Jane Doe", "jane@example.com", "hashed-password");
+        _repository.SearchAdminAsync(Arg.Any<PagedRequest>(), "Jane", Arg.Any<CancellationToken>())
+            .Returns(new PagedResult<User>([user], 1, 1, 10));
+
+        var result = await _sut.SearchUsersAdminAsync(new PagedRequest(), "Jane");
+
+        Assert.Single(result.Items);
+        Assert.Equal(user.Email, result.Items.First().Email);
+        await _repository.Received(1).SearchAdminAsync(Arg.Any<PagedRequest>(), "Jane", Arg.Any<CancellationToken>());
+    }
 }

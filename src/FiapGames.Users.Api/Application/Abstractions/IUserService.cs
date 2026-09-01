@@ -19,6 +19,8 @@ public interface IUserService
 
     Task<PagedResult<UserEventResponse>> GetAllUserEventsAdminAsync(PagedRequest request, string? eventType, DateTime? from, DateTime? to, CancellationToken cancellationToken = default);
 
+    Task<PagedResult<UserResponse>> SearchUsersAdminAsync(PagedRequest request, string? name, CancellationToken cancellationToken = default);
+
     Task<Result<UserResponse>> UpdateAsync(Guid id, UpdateUserRequest request, CancellationToken cancellationToken = default);
 
     Task<Result<UserResponse>> UpdateRoleAsync(Guid id, UserRole role, CancellationToken cancellationToken = default);
