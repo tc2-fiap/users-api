@@ -133,6 +133,16 @@ spec:
                 secretKeyRef:
                   name: admin-credentials
                   key: ADMIN_PASSWORD
+            - name: Player__Email
+              valueFrom:
+                secretKeyRef:
+                  name: player-credentials
+                  key: PLAYER_EMAIL
+            - name: Player__Password
+              valueFrom:
+                secretKeyRef:
+                  name: player-credentials
+                  key: PLAYER_PASSWORD
           readinessProbe:
             httpGet:
               path: /health

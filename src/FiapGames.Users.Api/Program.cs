@@ -100,35 +100,43 @@ using (var scope = app.Services.CreateScope())
     db.Database.Migrate();
 
     // Bootstrap: promotion requires an existing admin, so seed exactly one
-    // from config the first time this email is seen. Idempotent — a
-    // restart never re-creates or resets it.
-    var adminEmail = builder.Configuration["Admin:Email"];
-    var adminPassword = builder.Configuration["Admin:Password"];
-    if (!string.IsNullOrWhiteSpace(adminEmail) && !string.IsNullOrWhiteSpace(adminPassword))
-    {
-        var repository = scope.ServiceProvider.GetRequiredService<IUserRepository>();
-        var passwordHasher = scope.ServiceProvider.GetRequiredService<IPasswordHasher>();
+    // from config the first time this email is seen — and a matching
+    // Player account, so a demo/grading walkthrough always has a
+    // non-admin login ready without registering one by hand. Both
+    // idempotent — a restart never re-creates or resets either.
+    await SeedUserIfConfiguredAsync(scope, "Admin", "Admin:Email", "Admin:Password", UserRole.Admin);
+    await SeedUserIfConfiguredAsync(scope, "Player", "Player:Email", "Player:Password", UserRole.Player);
+}
 
-        var existingAdmin = await repository.GetByEmailAsync(adminEmail);
-        if (existingAdmin is null)
-        {
-            var admin = new User("Admin", adminEmail, passwordHasher.Hash(adminPassword), UserRole.Admin);
-            await repository.AddAsync(admin);
+async Task SeedUserIfConfiguredAsync(IServiceScope scope, string displayName, string emailConfigKey, string passwordConfigKey, UserRole role)
+{
+    var email = builder.Configuration[emailConfigKey];
+    var password = builder.Configuration[passwordConfigKey];
+    if (string.IsNullOrWhiteSpace(email) || string.IsNullOrWhiteSpace(password))
+        return;
 
-            var userCreatedEvent = new UserCreatedEvent(admin.Id, admin.Name, admin.Email);
-            await repository.AddEventAsync(new UserEvent(admin.Id, "UserCreatedEvent", JsonSerializer.Serialize(userCreatedEvent)));
-            await repository.SaveChangesAsync();
+    var repository = scope.ServiceProvider.GetRequiredService<IUserRepository>();
+    var passwordHasher = scope.ServiceProvider.GetRequiredService<IPasswordHasher>();
 
-            // Same announcement a normal registration makes — otherwise
-            // notifications-api never learns this account exists and can't
-            // address a purchase notification to it (see notes.md 30's
-            // UserProjection).
-            var publishEndpoint = scope.ServiceProvider.GetRequiredService<IPublishEndpoint>();
-            await publishEndpoint.Publish(userCreatedEvent);
+    var existing = await repository.GetByEmailAsync(email);
+    if (existing is not null)
+        return;
 
-            Log.Information("Seeded admin account for {Email}", adminEmail);
-        }
-    }
+    var user = new User(displayName, email, passwordHasher.Hash(password), role);
+    await repository.AddAsync(user);
+
+    var userCreatedEvent = new UserCreatedEvent(user.Id, user.Name, user.Email);
+    await repository.AddEventAsync(new UserEvent(user.Id, "UserCreatedEvent", JsonSerializer.Serialize(userCreatedEvent)));
+    await repository.SaveChangesAsync();
+
+    // Same announcement a normal registration makes — otherwise
+    // notifications-api never learns this account exists and can't
+    // address a purchase notification to it (see notes.md 30's
+    // UserProjection).
+    var publishEndpoint = scope.ServiceProvider.GetRequiredService<IPublishEndpoint>();
+    await publishEndpoint.Publish(userCreatedEvent);
+
+    Log.Information("Seeded {Role} account for {Email}", role, email);
 }
 
 app.UseExceptionHandler();
