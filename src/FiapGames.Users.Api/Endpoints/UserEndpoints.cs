@@ -10,7 +10,7 @@ namespace FiapGames.Users.Api.Endpoints;
 
 public static class UserEndpoints
 {
-    public static IEndpointRouteBuilder MapUserEndpoints(this IEndpointRouteBuilder endpoints)
+    public static IEndpointRouteBuilder MapUserEndpoints(this IEndpointRouteBuilder endpoints, Func<IResult> getVersion)
     {
         var group = endpoints.MapGroup("/api/users").WithTags("Users");
 
@@ -71,17 +71,24 @@ public static class UserEndpoints
             return Results.Ok(new { id, email = user.FindFirstValue(ClaimTypes.Email) });
         }).RequireAuthorization();
 
+        // Admin-only: this is a lookup by arbitrary id, not the caller's own
+        // profile (that's GET /me) — without a role check here, any
+        // authenticated Player could read any other user's record by
+        // guessing/incrementing a GUID.
         group.MapGet("/{id:guid}", async (Guid id, IUserService service, CancellationToken cancellationToken) =>
         {
             var result = await service.GetByIdAsync(id, cancellationToken);
             return result.ToHttpResult();
-        }).RequireAuthorization();
+        }).RequireAuthorization(p => p.RequireRole(nameof(Domain.UserRole.Admin)));
 
+        // Admin-only: lists every user in the system, same as every other
+        // "list everything" endpoint in this codebase (orders-api's
+        // /admin, payments-api's /admin, this file's own /admin/search).
         group.MapGet("/", async ([AsParameters] PagedRequest request, IUserService service, CancellationToken cancellationToken) =>
         {
             var result = await service.GetPagedAsync(request, cancellationToken);
             return Results.Ok(result);
-        }).RequireAuthorization();
+        }).RequireAuthorization(p => p.RequireRole(nameof(Domain.UserRole.Admin)));
 
         group.MapGet("/admin/events", async (
             [AsParameters] PagedRequest request,
@@ -105,6 +112,14 @@ public static class UserEndpoints
             return Results.Ok(result);
         }).RequireAuthorization(p => p.RequireRole(nameof(Domain.UserRole.Admin)));
 
+        // Admin-dashboard-facing twin of the bare /version (see Program.cs):
+        // same handler, reached via the Ingress like any other route in
+        // this group instead of only via kubectl port-forward, gated to Admin.
+        group.MapGet("/version", getVersion).RequireAuthorization(p => p.RequireRole(nameof(Domain.UserRole.Admin)));
+
+        // Admin-only: UpdateAsync has no ownership check, so without a role
+        // check here any authenticated Player could rewrite any other
+        // user's name/email by id.
         group.MapPut("/{id:guid}", async (
             Guid id,
             UpdateUserRequest request,
@@ -118,7 +133,7 @@ public static class UserEndpoints
 
             var result = await service.UpdateAsync(id, request, cancellationToken);
             return result.ToHttpResult();
-        }).RequireAuthorization();
+        }).RequireAuthorization(p => p.RequireRole(nameof(Domain.UserRole.Admin)));
 
         group.MapPut("/{id:guid}/role", async (
             Guid id,
@@ -130,11 +145,14 @@ public static class UserEndpoints
             return result.ToHttpResult();
         }).RequireAuthorization(p => p.RequireRole(nameof(Domain.UserRole.Admin)));
 
+        // Admin-only: DeleteAsync has no ownership check, so without a role
+        // check here any authenticated Player could delete any other
+        // user's account by id.
         group.MapDelete("/{id:guid}", async (Guid id, IUserService service, CancellationToken cancellationToken) =>
         {
             var result = await service.DeleteAsync(id, cancellationToken);
             return result.ToHttpResult();
-        }).RequireAuthorization();
+        }).RequireAuthorization(p => p.RequireRole(nameof(Domain.UserRole.Admin)));
 
         return endpoints;
     }
