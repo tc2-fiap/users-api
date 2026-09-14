@@ -35,8 +35,8 @@ services:
 
   users-api:
     build:
-      context: ./src/FiapGames.Users.Api
-      dockerfile: Dockerfile
+      context: .
+      dockerfile: src/FiapGames.Users.Api/Dockerfile
     restart: unless-stopped
     ports:
       - "8081:8080"
