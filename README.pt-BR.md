@@ -24,7 +24,11 @@ Implantado pelo chart Helm [`orchestration`](https://github.com/tc2-fiap/orchest
 - Publica `UserCreatedEvent` no cadastro (e uma vez, de forma idempotente, para o admin semeado — ver `../documentation/spec/notes.md` 32).
 - `GET /api/users/config` — anônimo; informa ao frontend se o login com Google está configurado, para que ele nunca renderize um botão fadado a falhar.
 - `GET /api/users/admin/events` — somente admin, paginado, filtrável por `eventType`/`from`/`to`; a listagem de eventos de todo o sistema (não por pedido) por trás da página `/admin/events` do frontend (`../documentation/spec/notes.md` 43).
-- `PUT /api/users/{id}/role` — somente admin; promove outro usuário (o primeiro admin é semeado a partir de configuração na inicialização, já que a promoção exige um admin existente).
+- `PUT /api/users/{id}/role` — somente admin; promove outro usuário (o primeiro admin é semeado a partir de configuração na inicialização, já que a promoção exige um admin existente). Recusa `id == callerId` — um admin não pode mudar a própria role — e publica `RoleChangedEvent`, persistido no mesmo log de auditoria `UserEvent`.
+- `DELETE /api/users/{id}` — somente admin; também recusa `id == callerId`, então um admin não pode excluir a própria conta.
+- `POST /api/users/login` bloqueia uma conta por 15 minutos depois de 5 tentativas seguidas com falha (`User.FailedLoginAttempts`/`LockedUntilUtc`), zerado num login bem-sucedido.
+- `POST /api/users/logout` — publica `TokenRevokedEvent`, consumido pelos seis serviços para rejeitar aquele token imediatamente em vez de esperar sua expiração natural.
+- Regra de `Password` do cadastro: 12+ caracteres, as quatro classes de caractere (maiúscula/minúscula/dígito/especial), e uma pequena lista de senhas fracas comuns recusadas.
 - Uma conta `Admin` é semeada na inicialização a partir das configurações `Admin:Email`/`Admin:Password`, de forma idempotente.
 
 ## Testar
