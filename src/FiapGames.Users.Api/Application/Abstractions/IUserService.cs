@@ -13,6 +13,8 @@ public interface IUserService
 
     Task<Result<LoginResponse>> LoginWithGoogleAsync(GoogleLoginRequest request, CancellationToken cancellationToken = default);
 
+    Task LogoutAsync(string jti, DateTime expiresAtUtc, CancellationToken cancellationToken = default);
+
     Task<Result<UserResponse>> GetByIdAsync(Guid id, CancellationToken cancellationToken = default);
 
     Task<PagedResult<UserResponse>> GetPagedAsync(PagedRequest request, CancellationToken cancellationToken = default);
@@ -23,7 +25,7 @@ public interface IUserService
 
     Task<Result<UserResponse>> UpdateAsync(Guid id, UpdateUserRequest request, CancellationToken cancellationToken = default);
 
-    Task<Result<UserResponse>> UpdateRoleAsync(Guid id, UserRole role, CancellationToken cancellationToken = default);
+    Task<Result<UserResponse>> UpdateRoleAsync(Guid id, UserRole role, Guid callerId, CancellationToken cancellationToken = default);
 
-    Task<Result> DeleteAsync(Guid id, CancellationToken cancellationToken = default);
+    Task<Result> DeleteAsync(Guid id, Guid callerId, CancellationToken cancellationToken = default);
 }

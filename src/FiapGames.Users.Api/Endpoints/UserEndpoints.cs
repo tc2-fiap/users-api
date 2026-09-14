@@ -58,12 +58,36 @@ public static class UserEndpoints
 
         group.MapPost("/login/google", async (
             GoogleLoginRequest request,
+            IValidator<GoogleLoginRequest> validator,
             IUserService service,
             CancellationToken cancellationToken) =>
         {
+            var validation = await validator.ValidateAsync(request, cancellationToken);
+            if (!validation.IsValid)
+                return Results.ValidationProblem(validation.ToDictionary());
+
             var result = await service.LoginWithGoogleAsync(request, cancellationToken);
             return result.ToHttpResult();
         }).AllowAnonymous();
+
+        // Best-effort revocation: publishes a TokenRevokedEvent for the
+        // caller's own jti so every service stops honoring this token even
+        // before it naturally expires. If the token is somehow missing
+        // jti/exp (shouldn't happen — JwtTokenService always sets both),
+        // this still returns 204 rather than erroring — there's nothing
+        // more the client can do differently.
+        group.MapPost("/logout", async (ClaimsPrincipal caller, IUserService service, CancellationToken cancellationToken) =>
+        {
+            var jti = caller.FindFirstValue("jti");
+            var expClaim = caller.FindFirstValue("exp");
+            if (jti is not null && expClaim is not null && long.TryParse(expClaim, out var expUnix))
+            {
+                var expiresAtUtc = DateTimeOffset.FromUnixTimeSeconds(expUnix).UtcDateTime;
+                await service.LogoutAsync(jti, expiresAtUtc, cancellationToken);
+            }
+
+            return Results.NoContent();
+        }).RequireAuthorization();
 
         group.MapGet("/me", (ClaimsPrincipal user) =>
         {
@@ -138,19 +162,27 @@ public static class UserEndpoints
         group.MapPut("/{id:guid}/role", async (
             Guid id,
             UpdateRoleRequest request,
+            IValidator<UpdateRoleRequest> validator,
+            ClaimsPrincipal caller,
             IUserService service,
             CancellationToken cancellationToken) =>
         {
-            var result = await service.UpdateRoleAsync(id, request.Role, cancellationToken);
+            var validation = await validator.ValidateAsync(request, cancellationToken);
+            if (!validation.IsValid)
+                return Results.ValidationProblem(validation.ToDictionary());
+
+            var callerId = Guid.Parse(caller.FindFirstValue(ClaimTypes.NameIdentifier) ?? caller.FindFirstValue("sub")!);
+            var result = await service.UpdateRoleAsync(id, request.Role, callerId, cancellationToken);
             return result.ToHttpResult();
         }).RequireAuthorization(p => p.RequireRole(nameof(Domain.UserRole.Admin)));
 
         // Admin-only: DeleteAsync has no ownership check, so without a role
         // check here any authenticated Player could delete any other
         // user's account by id.
-        group.MapDelete("/{id:guid}", async (Guid id, IUserService service, CancellationToken cancellationToken) =>
+        group.MapDelete("/{id:guid}", async (Guid id, ClaimsPrincipal caller, IUserService service, CancellationToken cancellationToken) =>
         {
-            var result = await service.DeleteAsync(id, cancellationToken);
+            var callerId = Guid.Parse(caller.FindFirstValue(ClaimTypes.NameIdentifier) ?? caller.FindFirstValue("sub")!);
+            var result = await service.DeleteAsync(id, callerId, cancellationToken);
             return result.ToHttpResult();
         }).RequireAuthorization(p => p.RequireRole(nameof(Domain.UserRole.Admin)));
 

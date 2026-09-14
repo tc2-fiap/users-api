@@ -27,6 +27,8 @@ public sealed class UsersDbContext : DbContext
             builder.Property(u => u.PasswordHash).IsRequired(false);
             builder.Property(u => u.GoogleSubjectId).HasMaxLength(64);
             builder.HasIndex(u => u.GoogleSubjectId).IsUnique().HasFilter("\"GoogleSubjectId\" IS NOT NULL");
+            builder.Property(u => u.FailedLoginAttempts).IsRequired().HasDefaultValue(0);
+            builder.Property(u => u.LockedUntilUtc).IsRequired(false);
         });
 
         modelBuilder.Entity<UserEvent>(builder =>

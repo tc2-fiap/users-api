@@ -86,6 +86,50 @@ public class UserServiceTests
     }
 
     [Fact]
+    public async Task LoginAsync_AfterFiveFailedAttempts_LocksAccountAndPersists()
+    {
+        var user = new User("Jane Doe", "jane@example.com", "hashed-password");
+        _repository.GetByEmailAsync("jane@example.com").Returns(user);
+        _passwordHasher.Verify("WrongPassword", "hashed-password").Returns(false);
+
+        for (var i = 0; i < 5; i++)
+            await _sut.LoginAsync(new LoginRequest("jane@example.com", "WrongPassword"));
+
+        Assert.True(user.IsLockedOut(DateTime.UtcNow));
+        await _repository.Received(5).SaveChangesAsync(Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task LoginAsync_WhenAccountIsLocked_RejectsEvenWithCorrectPassword()
+    {
+        var user = new User("Jane Doe", "jane@example.com", "hashed-password");
+        for (var i = 0; i < 5; i++)
+            user.RegisterFailedLogin(DateTime.UtcNow);
+        _repository.GetByEmailAsync("jane@example.com").Returns(user);
+        _passwordHasher.Verify("Password123", "hashed-password").Returns(true);
+
+        var result = await _sut.LoginAsync(new LoginRequest("jane@example.com", "Password123"));
+
+        Assert.True(result.IsFailure);
+        Assert.Equal(ErrorType.Unauthorized, result.Error!.Type);
+        _passwordHasher.DidNotReceiveWithAnyArgs().Verify(default!, default!);
+    }
+
+    [Fact]
+    public async Task LoginAsync_WithValidCredentials_ResetsFailedAttempts()
+    {
+        var user = new User("Jane Doe", "jane@example.com", "hashed-password");
+        user.RegisterFailedLogin(DateTime.UtcNow);
+        _repository.GetByEmailAsync("jane@example.com").Returns(user);
+        _passwordHasher.Verify("Password123", "hashed-password").Returns(true);
+        _tokenService.GenerateToken(user.Id, user.Email, user.Role.ToString()).Returns("jwt-token");
+
+        await _sut.LoginAsync(new LoginRequest("jane@example.com", "Password123"));
+
+        Assert.Equal(0, user.FailedLoginAttempts);
+    }
+
+    [Fact]
     public async Task LoginAsync_WhenAccountIsGoogleOnly_ReturnsUnauthorizedWithoutHashComparison()
     {
         var user = User.CreateFromGoogle("Jane Doe", "jane@example.com", "google-sub-1");
@@ -145,15 +189,41 @@ public class UserServiceTests
     }
 
     [Fact]
-    public async Task UpdateRoleAsync_WhenUserExists_ChangesRole()
+    public async Task UpdateRoleAsync_WhenUserExists_ChangesRoleAndPublishesEvent()
     {
         var user = new User("Jane Doe", "jane@example.com", "hash");
         _repository.GetByIdAsync(user.Id).Returns(user);
 
-        var result = await _sut.UpdateRoleAsync(user.Id, UserRole.Admin);
+        var result = await _sut.UpdateRoleAsync(user.Id, UserRole.Admin, Guid.NewGuid());
 
         Assert.True(result.IsSuccess);
         Assert.Equal("Admin", result.Value.Role);
+        await _repository.Received(1).AddEventAsync(Arg.Any<UserEvent>(), Arg.Any<CancellationToken>());
+        await _publishEndpoint.Received(1).Publish(Arg.Any<RoleChangedEvent>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task UpdateRoleAsync_WhenCallerTargetsSelf_ReturnsValidationError()
+    {
+        var callerId = Guid.NewGuid();
+
+        var result = await _sut.UpdateRoleAsync(callerId, UserRole.Admin, callerId);
+
+        Assert.True(result.IsFailure);
+        Assert.Equal(ErrorType.Validation, result.Error!.Type);
+        await _repository.DidNotReceive().GetByIdAsync(Arg.Any<Guid>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task LogoutAsync_PublishesTokenRevokedEvent()
+    {
+        var expiresAtUtc = DateTime.UtcNow.AddMinutes(30);
+
+        await _sut.LogoutAsync("some-jti", expiresAtUtc);
+
+        await _publishEndpoint.Received(1).Publish(
+            Arg.Is<TokenRevokedEvent>(e => e.Jti == "some-jti" && e.ExpiresAtUtc == expiresAtUtc),
+            Arg.Any<CancellationToken>());
     }
 
     [Fact]
@@ -187,10 +257,22 @@ public class UserServiceTests
         var user = new User("Jane Doe", "jane@example.com", "hash");
         _repository.GetByIdAsync(user.Id).Returns(user);
 
-        var result = await _sut.DeleteAsync(user.Id);
+        var result = await _sut.DeleteAsync(user.Id, Guid.NewGuid());
 
         Assert.True(result.IsSuccess);
         _repository.Received(1).Remove(user);
+    }
+
+    [Fact]
+    public async Task DeleteAsync_WhenCallerTargetsSelf_ReturnsValidationError()
+    {
+        var callerId = Guid.NewGuid();
+
+        var result = await _sut.DeleteAsync(callerId, callerId);
+
+        Assert.True(result.IsFailure);
+        Assert.Equal(ErrorType.Validation, result.Error!.Type);
+        await _repository.DidNotReceive().GetByIdAsync(Arg.Any<Guid>(), Arg.Any<CancellationToken>());
     }
 
     [Fact]

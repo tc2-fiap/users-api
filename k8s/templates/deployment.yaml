@@ -15,6 +15,9 @@ spec:
       labels:
         app: users-api
     spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1654
       initContainers:
         # On a genuinely cold cluster bring-up, this pod can start before
         # Postgres accepts connections; EF Core's Database.Migrate() at
@@ -24,6 +27,8 @@ spec:
         # the transient error state on a one-command bring-up entirely.
         - name: wait-for-postgres
           image: postgres:16-alpine
+          securityContext:
+            runAsUser: 70
           command:
             - sh
             - -c
@@ -41,6 +46,8 @@ spec:
                   key: POSTGRES_PORT
       containers:
         - name: users-api
+          securityContext:
+            allowPrivilegeEscalation: false
           image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
           imagePullPolicy: {{ .Values.image.pullPolicy }}
           ports:

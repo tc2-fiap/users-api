@@ -20,6 +20,10 @@ public class User : Entity
 
     public UserRole Role { get; private set; }
 
+    public int FailedLoginAttempts { get; private set; }
+
+    public DateTime? LockedUntilUtc { get; private set; }
+
     private User() { }
 
     public User(string name, string email, string passwordHash, UserRole role = UserRole.Player)
@@ -65,5 +69,27 @@ public class User : Entity
     {
         Role = role;
         Touch();
+    }
+
+    public bool IsLockedOut(DateTime nowUtc) => LockedUntilUtc is not null && LockedUntilUtc > nowUtc;
+
+    // Threshold/window are fixed rather than configurable — see notes.md.
+    private const int MaxFailedAttempts = 5;
+    private static readonly TimeSpan LockoutDuration = TimeSpan.FromMinutes(15);
+
+    public void RegisterFailedLogin(DateTime nowUtc)
+    {
+        FailedLoginAttempts++;
+        if (FailedLoginAttempts >= MaxFailedAttempts)
+        {
+            LockedUntilUtc = nowUtc.Add(LockoutDuration);
+            FailedLoginAttempts = 0;
+        }
+    }
+
+    public void RegisterSuccessfulLogin()
+    {
+        FailedLoginAttempts = 0;
+        LockedUntilUtc = null;
     }
 }

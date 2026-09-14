@@ -5,6 +5,7 @@ using FiapGames.Shared.Infrastructure.Extensions;
 using FiapGames.Users.Api.Application.Abstractions;
 using FiapGames.Users.Api.Application.Services;
 using FiapGames.Users.Api.Application.Validators;
+using FiapGames.Users.Api.Consumers;
 using FiapGames.Users.Api.Domain;
 using FiapGames.Users.Api.Endpoints;
 using FiapGames.Users.Api.Infrastructure.Auth;
@@ -52,6 +53,8 @@ builder.Services.AddValidatorsFromAssemblyContaining<RegisterUserRequestValidato
 
 builder.Services.AddMassTransit(x =>
 {
+    x.AddConsumer<TokenRevokedConsumer>();
+
     x.UsingRabbitMq((context, cfg) =>
     {
         cfg.Host(
@@ -63,7 +66,16 @@ builder.Services.AddMassTransit(x =>
                 h.Password(builder.Configuration["RabbitMq:Password"] ?? "guest");
             });
 
-        cfg.ConfigureEndpoints(context);
+        // Explicit, service-scoped endpoint name — see orders-api's
+        // Program.cs for why relying on MassTransit's default naming
+        // (which ignores the namespace) is unsafe once two services
+        // declare a same-named consumer class for the same event. Every
+        // other service consuming TokenRevokedEvent uses this exact same
+        // per-service queue name shape.
+        cfg.ReceiveEndpoint("users-api-token-revoked", e =>
+        {
+            e.ConfigureConsumer<TokenRevokedConsumer>(context);
+        });
     });
 });
 

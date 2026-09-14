@@ -81,11 +81,26 @@ public sealed class UserService : IUserService
             return Result.Failure<LoginResponse>(Error.Unauthorized("This account signs in with Google."));
         }
 
+        var now = DateTime.UtcNow;
+        if (user.IsLockedOut(now))
+        {
+            _logger.LogWarning("Login rejected for {Email}: account locked until {LockedUntilUtc}", request.Email, user.LockedUntilUtc);
+            return Result.Failure<LoginResponse>(Error.Unauthorized("Too many failed attempts. Try again later."));
+        }
+
         if (!_passwordHasher.Verify(request.Password, user.PasswordHash))
         {
+            user.RegisterFailedLogin(now);
+            _repository.Update(user);
+            await _repository.SaveChangesAsync(cancellationToken);
+
             _logger.LogWarning("Login failed for {Email}: invalid credentials", request.Email);
             return Result.Failure<LoginResponse>(Error.Unauthorized("Invalid email or password."));
         }
+
+        user.RegisterSuccessfulLogin();
+        _repository.Update(user);
+        await _repository.SaveChangesAsync(cancellationToken);
 
         var token = _tokenService.GenerateToken(user.Id, user.Email, user.Role.ToString());
 
@@ -137,6 +152,13 @@ public sealed class UserService : IUserService
         _logger.LogInformation("User {UserId} logged in via Google", user.Id);
 
         return Result.Success(new LoginResponse(token, DateTime.UtcNow.AddMinutes(_jwtSettings.ExpiryMinutes)));
+    }
+
+    public async Task LogoutAsync(string jti, DateTime expiresAtUtc, CancellationToken cancellationToken = default)
+    {
+        await _publishEndpoint.Publish(new TokenRevokedEvent(jti, expiresAtUtc), cancellationToken);
+
+        _logger.LogInformation("Token {Jti} revoked via logout", jti);
     }
 
     public async Task<Result<UserResponse>> GetByIdAsync(Guid id, CancellationToken cancellationToken = default)
@@ -197,8 +219,17 @@ public sealed class UserService : IUserService
         return Result.Success(UserResponse.FromDomain(user));
     }
 
-    public async Task<Result<UserResponse>> UpdateRoleAsync(Guid id, UserRole role, CancellationToken cancellationToken = default)
+    public async Task<Result<UserResponse>> UpdateRoleAsync(Guid id, UserRole role, Guid callerId, CancellationToken cancellationToken = default)
     {
+        // An Admin can't change their own role — the only way to get a
+        // second Admin is for an existing one to promote someone else, so
+        // allowing self-demotion could strand the system with no Admin left.
+        if (id == callerId)
+        {
+            _logger.LogWarning("Role change rejected: user {UserId} attempted to change their own role", id);
+            return Result.Failure<UserResponse>(Error.Validation("You cannot change your own role."));
+        }
+
         var user = await _repository.GetByIdAsync(id, cancellationToken);
         if (user is null)
         {
@@ -206,17 +237,32 @@ public sealed class UserService : IUserService
             return Result.Failure<UserResponse>(Error.NotFound($"User '{id}' was not found."));
         }
 
+        var oldRole = user.Role;
         user.ChangeRole(role);
         _repository.Update(user);
+
+        var roleChangedEvent = new RoleChangedEvent(user.Id, oldRole.ToString(), role.ToString(), callerId);
+        await _repository.AddEventAsync(new UserEvent(user.Id, "RoleChangedEvent", JsonSerializer.Serialize(roleChangedEvent)), cancellationToken);
+
         await _repository.SaveChangesAsync(cancellationToken);
 
-        _logger.LogInformation("User {UserId} role changed to {Role}", user.Id, role);
+        await _publishEndpoint.Publish(roleChangedEvent, cancellationToken);
+
+        _logger.LogInformation("User {UserId} role changed from {OldRole} to {NewRole} by {CallerId}", user.Id, oldRole, role, callerId);
 
         return Result.Success(UserResponse.FromDomain(user));
     }
 
-    public async Task<Result> DeleteAsync(Guid id, CancellationToken cancellationToken = default)
+    public async Task<Result> DeleteAsync(Guid id, Guid callerId, CancellationToken cancellationToken = default)
     {
+        // Same reasoning as UpdateRoleAsync — an Admin deleting themself
+        // could leave the system with no Admin account at all.
+        if (id == callerId)
+        {
+            _logger.LogWarning("Delete rejected: user {UserId} attempted to delete their own account", id);
+            return Result.Failure(Error.Validation("You cannot delete your own account."));
+        }
+
         var user = await _repository.GetByIdAsync(id, cancellationToken);
         if (user is null)
         {
